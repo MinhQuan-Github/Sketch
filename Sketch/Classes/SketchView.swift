@@ -40,6 +40,7 @@ public class SketchView: UIView {
     public var drawTool: SketchToolType = .pen
     public var drawingPenType: PenType = .normal
     public var sketchViewDelegate: SketchViewDelegate?
+    public var isFocus = false
     private var currentTool: SketchTool?
     private let pathArray: NSMutableArray = NSMutableArray()
     private let bufferArray: NSMutableArray = NSMutableArray()
@@ -49,24 +50,24 @@ public class SketchView: UIView {
     private var image: UIImage?
     private var backgroundImage: UIImage?
     private var drawMode: ImageRenderingMode = .original
-
+    
     public override init(frame: CGRect) {
         super.init(frame: frame)
         prepareForInitial()
     }
-
+    
     public required init?(coder aDecoder: NSCoder) {
         super.init(coder: aDecoder)!
         prepareForInitial()
     }
-
+    
     private func prepareForInitial() {
         backgroundColor = UIColor.clear
     }
-
+    
     public override func draw(_ rect: CGRect) {
         super.draw(rect)
-
+        
         switch drawMode {
         case .original:
             image?.draw(at: CGPoint.zero)
@@ -75,13 +76,13 @@ public class SketchView: UIView {
             image?.draw(in: self.bounds)
             break
         }
-
+        
         currentTool?.draw()
     }
-
+    
     private func updateCacheImage(_ isUpdate: Bool) {
         UIGraphicsBeginImageContextWithOptions(bounds.size, false, 0.0)
-
+        
         if isUpdate {
             image = nil
             switch drawMode {
@@ -94,7 +95,7 @@ public class SketchView: UIView {
                 (backgroundImage?.copy() as! UIImage).draw(in: self.bounds)
                 break
             }
-
+            
             for obj in pathArray {
                 if let tool = obj as? SketchTool {
                     tool.draw()
@@ -104,16 +105,15 @@ public class SketchView: UIView {
             switch drawMode {
             case .original:
                 image?.draw(at: .zero)
-              case .scale:
+            case .scale:
                 image?.draw(in: self.bounds)
             }
             currentTool?.draw()
         }
-
+        
         image = UIGraphicsGetImageFromCurrentImageContext()
         UIGraphicsEndImageContext()
     }
-
     private func toolWithCurrentSettings() -> SketchTool? {
         switch drawTool {
         case .pen:
@@ -148,21 +148,24 @@ public class SketchView: UIView {
             return FillTool()
         }
     }
-
+    
     public override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if isFocus {
+            return
+        }
         guard let touch = touches.first else { return }
-
+        
         if currentTool != nil {
             finishDrawing()
         }
-
+        
         previousPoint1 = touch.previousLocation(in: self)
         currentPoint = touch.location(in: self)
         currentTool = toolWithCurrentSettings()
         currentTool?.lineWidth = lineWidth
         currentTool?.lineColor = lineColor
         currentTool?.lineAlpha = lineAlpha
-
+        
         sketchViewDelegate?.drawView?(self, willBeginDrawUsingTool: currentTool! as AnyObject)
         
         switch currentTool! {
@@ -182,59 +185,62 @@ public class SketchView: UIView {
             currentTool.setInitialPoint(currentPoint!)
         }
     }
-
+    
     public override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
-
+        
         previousPoint2 = previousPoint1
         previousPoint1 = touch.previousLocation(in: self)
         currentPoint = touch.location(in: self)
-
+        
         if let penTool = currentTool as? PenTool {
             let renderingBox = penTool.createBezierRenderingBox(previousPoint2!, withPreviousPoint: previousPoint1!, withCurrentPoint: currentPoint!)
-
+            
             setNeedsDisplay(renderingBox)
         } else {
             currentTool?.moveFromPoint(previousPoint1!, toPoint: currentPoint!)
             setNeedsDisplay()
         }
     }
-
+    
     public override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if isFocus {
+            return
+        }
         touchesMoved(touches, with: event)
         finishDrawing()
     }
-
+    
     fileprivate func finishDrawing() {
         updateCacheImage(false)
         bufferArray.removeAllObjects()
         sketchViewDelegate?.drawView?(self, didEndDrawUsingTool: currentTool! as AnyObject)
         currentTool = nil
     }
-
+    
     private func resetTool() {
         currentTool = nil
     }
-
+    
     public func clear() {
         resetTool()
         bufferArray.removeAllObjects()
         pathArray.removeAllObjects()
         updateCacheImage(true)
-
+        
         setNeedsDisplay()
     }
-
+    
     func pinch() {
         resetTool()
         guard let tool = pathArray.lastObject as? SketchTool else { return }
         bufferArray.add(tool)
         pathArray.removeLastObject()
         updateCacheImage(true)
-
+        
         setNeedsDisplay()
     }
-
+    
     public func loadImage(image: UIImage, drawMode: ImageRenderingMode = .original) {
         self.image = image
         self.drawMode = drawMode
@@ -242,10 +248,10 @@ public class SketchView: UIView {
         bufferArray.removeAllObjects()
         pathArray.removeAllObjects()
         updateCacheImage(true)
-
+        
         setNeedsDisplay()
     }
-
+    
     public func undo() {
         if canUndo() {
             guard let tool = pathArray.lastObject as? SketchTool else { return }
@@ -253,11 +259,11 @@ public class SketchView: UIView {
             bufferArray.add(tool)
             pathArray.removeLastObject()
             updateCacheImage(true)
-
+            
             setNeedsDisplay()
         }
     }
-
+    
     public func redo() {
         if canRedo() {
             guard let tool = bufferArray.lastObject as? SketchTool else { return }
@@ -265,15 +271,15 @@ public class SketchView: UIView {
             pathArray.add(tool)
             bufferArray.removeLastObject()
             updateCacheImage(true)
-
+            
             setNeedsDisplay()
         }
     }
-
+    
     public func canUndo() -> Bool {
         return pathArray.count > 0
     }
-
+    
     public func canRedo() -> Bool {
         return bufferArray.count > 0
     }
